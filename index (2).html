@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VidaLeve – Produtos para Emagrecimento e Saúde</title>
+  <meta name="description" content="Descubra os melhores produtos digitais para emagrecer com saúde, disposição e resultados reais. Transforme sua vida hoje." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <!-- Firebase -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { getFirestore, collection, getDocs, doc, getDoc, addDoc, updateDoc, deleteDoc, onSnapshot }
+      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject }
+      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+
+    // ─── CONFIGURE SEU FIREBASE AQUI ───────────────────────────────────────────
+    const firebaseConfig = {
+      apiKey: "AIzaSyDqDRbev478nVTJ1a5gH6vVmi0buY6PTNM",
+      authDomain: "vidaleve-ce708.firebaseapp.com",
+      projectId: "vidaleve-ce708",
+      storageBucket: "vidaleve-ce708.firebasestorage.app",
+      messagingSenderId: "796324153892",
+      appId: "1:796324153892:web:20fd9f0640413cab22a6b1",
+      measurementId: "G-R3XR48S8TL"
+    };
+    // ────────────────────────────────────────────────────────────────────────────
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db   = getFirestore(app);
+    const storage = getStorage(app);
+
+    // ── helpers ──────────────────────────────────────────────────────────────
+    const $ = id => document.getElementById(id);
+    const qs = sel => document.querySelector(sel);
+    let currentUser = null;
+    let allProducts = [];
+    let siteConfig  = {};
+
+    // ── auth state ───────────────────────────────────────────────────────────
+    onAuthStateChanged(auth, user => {
+      currentUser = user;
+      if (user) {
+        $('admin-fab').style.display = 'flex';
+        loadAdminBar();
+      } else {
+        $('admin-fab').style.display = 'none';
+        hideAdminBar();
+      }
+    });
+
+    // ── load site config (banner + frase) ────────────────────────────────────
+    async function loadSiteConfig() {
+      const snap = await getDoc(doc(db, 'config', 'site'));
+      if (snap.exists()) {
+        siteConfig = snap.data();
+        if (siteConfig.bannerUrl)   $('hero-img').src   = siteConfig.bannerUrl;
+        if (siteConfig.heroTitle)   $('hero-title').textContent = siteConfig.heroTitle;
+        if (siteConfig.heroSubtitle) $('hero-sub').textContent = siteConfig.heroSubtitle;
+      }
+    }
+
+    // ── load products ─────────────────────────────────────────────────────────
+    function loadProducts() {
+      onSnapshot(collection(db, 'products'), snap => {
+        allProducts = [];
+        snap.forEach(d => allProducts.push({ id: d.id, ...d.data() }));
+        renderGrid(allProducts);
+      });
+    }
+
+    function renderGrid(products) {
+      const grid = $('products-grid');
+      grid.innerHTML = '';
+      if (!products.length) {
+        grid.innerHTML = '<p class="empty-state">Nenhum produto cadastrado ainda.</p>';
+        return;
+      }
+      products.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'product-card';
+        card.innerHTML = `
+          <div class="card-img-wrap">
+            <img src="${p.imageUrl || 'https://placehold.co/400x300/e8f5e9/16a34a?text=Produto'}"
+                 alt="${p.name}" loading="lazy" />
+            ${p.badge ? `<span class="card-badge">${p.badge}</span>` : ''}
+          </div>
+          <div class="card-body">
+            <h3>${p.name}</h3>
+            <p>${p.shortDesc || ''}</p>
+            ${p.price ? `<div class="card-price">${p.price}</div>` : ''}
+            <button class="btn-primary btn-full" onclick="openProduct('${p.id}')">Ver Produto →</button>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    // ── product page ──────────────────────────────────────────────────────────
+    window.openProduct = function(id) {
+      const p = allProducts.find(x => x.id === id);
+      if (!p) return;
+      history.pushState({ productId: id }, '', `#produto/${id}`);
+      renderProductPage(p);
+    };
+
+    function renderProductPage(p) {
+      const benefits = (p.benefits || []).map(b => `<li>✅ ${b}</li>`).join('');
+      $('product-view').innerHTML = `
+        <div class="product-page">
+          <button class="btn-back" onclick="goHome()">← Voltar aos Produtos</button>
+          <div class="prod-layout">
+            <div class="prod-img-col">
+              <img src="${p.imageUrl || 'https://placehold.co/600x500/e8f5e9/16a34a?text=Produto'}"
+                   alt="${p.name}" />
+              <div class="trust-badges">
+                <span>🔒 Compra Segura</span>
+                <span>✅ Garantia 30 dias</span>
+                <span>⚡ Acesso Imediato</span>
+              </div>
+            </div>
+            <div class="prod-info-col">
+              ${p.tag ? `<span class="prod-tag">${p.tag}</span>` : ''}
+              <h1>${p.name}</h1>
+              <p class="prod-desc">${p.description || ''}</p>
+              ${benefits ? `<ul class="prod-benefits">${benefits}</ul>` : ''}
+              ${p.price ? `<div class="prod-price">${p.price}</div>` : ''}
+              <a href="${p.hotlink || '#'}" target="_blank" rel="noopener" class="btn-cta btn-pulse">
+                🔥 QUERO EMAGRECER AGORA
+              </a>
+              <a href="${p.hotlink || '#'}" target="_blank" rel="noopener" class="btn-secondary-cta">
+                🛒 Comprar Agora com Desconto
+              </a>
+              <p class="prod-disclaimer">⭐ Clicando você será redirecionado para a página oficial segura.</p>
+            </div>
+          </div>
+        </div>
+      `;
+      $('home-view').style.display = 'none';
+      $('product-view').style.display = 'block';
+      window.scrollTo(0,0);
+    }
+
+    window.goHome = function() {
+      history.pushState({}, '', '/');
+      $('home-view').style.display = 'block';
+      $('product-view').style.display = 'none';
+      $('product-view').innerHTML = '';
+    };
+
+    window.addEventListener('popstate', e => {
+      if (location.hash.startsWith('#produto/')) {
+        const id = location.hash.replace('#produto/', '');
+        const p = allProducts.find(x => x.id === id);
+        if (p) renderProductPage(p);
+      } else {
+        goHome();
+      }
+    });
+
+    // ── login modal ───────────────────────────────────────────────────────────
+    window.openLogin = function() { $('login-modal').style.display = 'flex'; };
+    window.closeLogin = function() { $('login-modal').style.display = 'none'; };
+
+    $('login-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const email = $('login-email').value;
+      const pass  = $('login-pass').value;
+      const err   = $('login-error');
+      err.textContent = '';
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+        closeLogin();
+      } catch (er) {
+        err.textContent = 'Email ou senha incorretos.';
+      }
+    });
+
+    window.doLogout = async function() {
+      await signOut(auth);
+    };
+
+    // ── admin bar ─────────────────────────────────────────────────────────────
+    function loadAdminBar() {
+      $('admin-bar').style.display = 'flex';
+    }
+    function hideAdminBar() {
+      $('admin-bar').style.display = 'none';
+    }
+
+    window.openAdminPanel = function() { $('admin-panel').style.display = 'flex'; loadAdminProducts(); };
+    window.closeAdminPanel = function() { $('admin-panel').style.display = 'none'; };
+
+    // ── admin: list products ──────────────────────────────────────────────────
+    function loadAdminProducts() {
+      const list = $('admin-product-list');
+      list.innerHTML = '<p style="color:#888">Carregando...</p>';
+      getDocs(collection(db, 'products')).then(snap => {
+        list.innerHTML = '';
+        snap.forEach(d => {
+          const p = { id: d.id, ...d.data() };
+          const row = document.createElement('div');
+          row.className = 'admin-product-row';
+          row.innerHTML = `
+            <img src="${p.imageUrl || 'https://placehold.co/60x60/e8f5e9/16a34a?text=?'}" alt="${p.name}" />
+            <div class="admin-prod-info">
+              <strong>${p.name}</strong>
+              <small>${p.hotlink || 'Sem hotlink'}</small>
+            </div>
+            <div class="admin-prod-actions">
+              <button class="btn-admin-action" onclick="editProduct('${p.id}')">✏️ Editar</button>
+              <button class="btn-admin-action btn-danger" onclick="deleteProduct('${p.id}','${p.imageUrl||''}')">🗑️ Excluir</button>
+            </div>
+          `;
+          list.appendChild(row);
+        });
+        if (!snap.size) list.innerHTML = '<p style="color:#888">Nenhum produto cadastrado.</p>';
+      });
+    }
+
+    // ── admin: add / edit product ─────────────────────────────────────────────
+    window.openAddProduct = function() {
+      $('prod-form-title').textContent = 'Adicionar Produto';
+      $('prod-form').reset();
+      $('prod-form-id').value = '';
+      $('prod-image-preview').src = '';
+      $('prod-image-preview').style.display = 'none';
+      $('prod-form-modal').style.display = 'flex';
+    };
+
+    window.editProduct = async function(id) {
+      const snap = await getDoc(doc(db, 'products', id));
+      if (!snap.exists()) return;
+      const p = snap.data();
+      $('prod-form-title').textContent = 'Editar Produto';
+      $('prod-form-id').value  = id;
+      $('prod-name').value     = p.name || '';
+      $('prod-short').value    = p.shortDesc || '';
+      $('prod-desc').value     = p.description || '';
+      $('prod-benefits').value = (p.benefits || []).join('\n');
+      $('prod-price').value    = p.price || '';
+      $('prod-hotlink').value  = p.hotlink || '';
+      $('prod-badge').value    = p.badge || '';
+      $('prod-tag').value      = p.tag || '';
+      if (p.imageUrl) {
+        $('prod-image-preview').src = p.imageUrl;
+        $('prod-image-preview').style.display = 'block';
+      }
+      $('prod-form-modal').style.display = 'flex';
+    };
+
+    window.closeProdForm = function() { $('prod-form-modal').style.display = 'none'; };
+
+    $('prod-image-input').addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = ev => {
+          $('prod-image-preview').src = ev.target.result;
+          $('prod-image-preview').style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    $('prod-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const btn = $('prod-submit-btn');
+      btn.disabled = true; btn.textContent = 'Salvando...';
+
+      const id        = $('prod-form-id').value;
+      const imageFile = $('prod-image-input').files[0];
+      let imageUrl    = '';
+
+      if (imageFile) {
+        const storageRef = ref(storage, `products/${Date.now()}_${imageFile.name}`);
+        await uploadBytes(storageRef, imageFile);
+        imageUrl = await getDownloadURL(storageRef);
+      } else if (id) {
+        const snap = await getDoc(doc(db, 'products', id));
+        imageUrl = snap.exists() ? (snap.data().imageUrl || '') : '';
+      }
+
+      const data = {
+        name:        $('prod-name').value,
+        shortDesc:   $('prod-short').value,
+        description: $('prod-desc').value,
+        benefits:    $('prod-benefits').value.split('\n').filter(Boolean),
+        price:       $('prod-price').value,
+        hotlink:     $('prod-hotlink').value,
+        badge:       $('prod-badge').value,
+        tag:         $('prod-tag').value,
+        imageUrl,
+        updatedAt:   new Date().toISOString()
+      };
+
+      if (id) {
+        await updateDoc(doc(db, 'products', id), data);
+      } else {
+        data.createdAt = new Date().toISOString();
+        await addDoc(collection(db, 'products'), data);
+      }
+
+      btn.disabled = false; btn.textContent = 'Salvar';
+      closeProdForm();
+      loadAdminProducts();
+    });
+
+    window.deleteProduct = async function(id, imgUrl) {
+      if (!confirm('Excluir este produto?')) return;
+      await deleteDoc(doc(db, 'products', id));
+      if (imgUrl) {
+        try { await deleteObject(ref(storage, imgUrl)); } catch(_) {}
+      }
+      loadAdminProducts();
+    };
+
+    // ── admin: site config ────────────────────────────────────────────────────
+    window.openSiteConfig = async function() {
+      const snap = await getDoc(doc(db, 'config', 'site'));
+      if (snap.exists()) {
+        const d = snap.data();
+        $('cfg-title').value    = d.heroTitle || '';
+        $('cfg-subtitle').value = d.heroSubtitle || '';
+      }
+      $('site-config-modal').style.display = 'flex';
+    };
+    window.closeSiteConfig = function() { $('site-config-modal').style.display = 'none'; };
+
+    $('site-config-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const bannerFile = $('banner-input').files[0];
+      let bannerUrl = siteConfig.bannerUrl || '';
+
+      if (bannerFile) {
+        const storageRef = ref(storage, `config/banner_${Date.now()}`);
+        await uploadBytes(storageRef, bannerFile);
+        bannerUrl = await getDownloadURL(storageRef);
+      }
+
+      const data = {
+        heroTitle:    $('cfg-title').value,
+        heroSubtitle: $('cfg-subtitle').value,
+        bannerUrl
+      };
+
+      await updateDoc(doc(db, 'config', 'site'), data).catch(() =>
+        addDoc(collection(db, 'config'), { ...data, id: 'site' })
+      );
+
+      siteConfig = data;
+      if (bannerUrl)   $('hero-img').src = bannerUrl;
+      if (data.heroTitle)    $('hero-title').textContent = data.heroTitle;
+      if (data.heroSubtitle) $('hero-sub').textContent   = data.heroSubtitle;
+      closeSiteConfig();
+    });
+
+    // ── init ──────────────────────────────────────────────────────────────────
+    loadSiteConfig();
+    loadProducts();
+  </script>
+  <style>
+    /* ── reset & base ─────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --green:    #16A34A;
+      --green-d:  #15803D;
+      --green-l:  #DCFCE7;
+      --orange:   #F97316;
+      --white:    #FFFFFF;
+      --gray-50:  #F8FAFC;
+      --gray-100: #F1F5F9;
+      --gray-200: #E2E8F0;
+      --gray-600: #475569;
+      --gray-800: #1E293B;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.08);
+      --shadow-md: 0 4px 16px rgba(0,0,0,.10);
+      --shadow-lg: 0 8px 32px rgba(0,0,0,.14);
+      --radius:   12px;
+      --radius-lg:20px;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Poppins', sans-serif;
+      background: var(--gray-50);
+      color: var(--gray-800);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── navbar ───────────────────────────────────────────────────────────── */
+    .navbar {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--gray-200);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: .75rem 1.5rem;
+      box-shadow: var(--shadow-sm);
+    }
+    .nav-logo {
+      display: flex; align-items: center; gap: .5rem;
+      text-decoration: none;
+    }
+    .nav-logo-icon {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--green), #4ADE80);
+      border-radius: 8px; display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem;
+    }
+    .nav-logo-text {
+      font-size: 1.2rem; font-weight: 800;
+      color: var(--green-d);
+      letter-spacing: -.5px;
+    }
+    .nav-logo-text span { color: var(--orange); }
+    .nav-tagline { font-size: .65rem; color: var(--gray-600); display: block; font-weight: 400; }
+
+    /* ── admin bar ────────────────────────────────────────────────────────── */
+    #admin-bar {
+      display: none;
+      background: var(--gray-800);
+      color: #fff;
+      padding: .5rem 1.5rem;
+      gap: .75rem;
+      align-items: center;
+      flex-wrap: wrap;
+      font-size: .82rem;
+    }
+    #admin-bar span { font-weight: 600; color: #4ADE80; margin-right: auto; }
+    .btn-admin-bar {
+      background: var(--green); color: #fff; border: none;
+      padding: .35rem .9rem; border-radius: 6px;
+      cursor: pointer; font-family: inherit; font-size: .8rem; font-weight: 600;
+      transition: background .2s;
+    }
+    .btn-admin-bar:hover { background: var(--green-d); }
+    .btn-admin-bar.danger { background: #DC2626; }
+    .btn-admin-bar.danger:hover { background: #b91c1c; }
+
+    /* ── hero / banner ────────────────────────────────────────────────────── */
+    .hero {
+      position: relative; overflow: hidden;
+      min-height: 420px;
+      background: linear-gradient(135deg, #064e3b 0%, #16a34a 60%, #4ade80 100%);
+    }
+    #hero-img {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%; object-fit: cover;
+      opacity: .35;
+    }
+    .hero-overlay {
+      position: relative;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center;
+      min-height: 420px;
+      padding: 3rem 1.5rem;
+    }
+    .hero-eyebrow {
+      display: inline-flex; align-items: center; gap: .4rem;
+      background: rgba(255,255,255,.15);
+      border: 1px solid rgba(255,255,255,.3);
+      color: #fff; border-radius: 999px;
+      padding: .3rem .9rem; font-size: .78rem; font-weight: 600;
+      margin-bottom: 1rem; letter-spacing: .5px;
+    }
+    #hero-title {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 800; color: #fff; line-height: 1.15;
+      max-width: 700px; margin-bottom: .75rem;
+      text-shadow: 0 2px 12px rgba(0,0,0,.25);
+    }
+    #hero-sub {
+      font-size: clamp(.95rem, 2vw, 1.15rem);
+      color: rgba(255,255,255,.88); max-width: 560px;
+      margin-bottom: 2rem;
+    }
+    .hero-cta-group { display: flex; gap: .75rem; flex-wrap: wrap; justify-content: center; }
+    .hero-btn {
+      background: #fff; color: var(--green-d);
+      border: none; border-radius: 999px;
+      padding: .75rem 2rem; font-size: 1rem; font-weight: 700;
+      cursor: pointer; font-family: inherit;
+      box-shadow: 0 4px 16px rgba(0,0,0,.15);
+      transition: transform .2s, box-shadow .2s;
+    }
+    .hero-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.2); }
+    .hero-btn.outline {
+      background: transparent; color: #fff;
+      border: 2px solid rgba(255,255,255,.6);
+    }
+    .hero-stats {
+      display: flex; gap: 2rem; margin-top: 2.5rem; flex-wrap: wrap; justify-content: center;
+    }
+    .hero-stat { text-align: center; }
+    .hero-stat strong { display: block; font-size: 1.6rem; font-weight: 800; color: #fff; }
+    .hero-stat span { font-size: .78rem; color: rgba(255,255,255,.75); }
+
+    /* ── section ──────────────────────────────────────────────────────────── */
+    .section {
+      max-width: 1240px; margin: 0 auto;
+      padding: 3rem 1.25rem;
+    }
+    .section-header { text-align: center; margin-bottom: 2.5rem; }
+    .section-eyebrow {
+      font-size: .78rem; font-weight: 700; letter-spacing: 1.5px;
+      color: var(--orange); text-transform: uppercase; margin-bottom: .5rem;
+    }
+    .section-title { font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; color: var(--gray-800); }
+    .section-sub { color: var(--gray-600); margin-top: .4rem; font-size: .95rem; }
+
+    /* ── products grid ────────────────────────────────────────────────────── */
+    #products-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.1rem;
+    }
+    @media (min-width: 768px) {
+      #products-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (min-width: 1024px) {
+      #products-grid { grid-template-columns: repeat(4, 1fr); }
+    }
+    .empty-state { text-align: center; color: var(--gray-600); padding: 3rem; grid-column: 1/-1; }
+
+    /* ── product card ─────────────────────────────────────────────────────── */
+    .product-card {
+      background: #fff; border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+      transition: transform .25s, box-shadow .25s;
+      display: flex; flex-direction: column;
+      border: 1px solid var(--gray-200);
+    }
+    .product-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-lg);
+    }
+    .card-img-wrap {
+      position: relative; overflow: hidden;
+      aspect-ratio: 4/3;
+    }
+    .card-img-wrap img {
+      width: 100%; height: 100%; object-fit: cover;
+      transition: transform .4s;
+    }
+    .product-card:hover .card-img-wrap img { transform: scale(1.05); }
+    .card-badge {
+      position: absolute; top: .6rem; left: .6rem;
+      background: var(--orange); color: #fff;
+      font-size: .68rem; font-weight: 700; padding: .2rem .55rem;
+      border-radius: 999px; text-transform: uppercase; letter-spacing: .5px;
+    }
+    .card-body { padding: 1rem; display: flex; flex-direction: column; flex: 1; gap: .4rem; }
+    .card-body h3 { font-size: .95rem; font-weight: 700; line-height: 1.3; }
+    .card-body p  { font-size: .8rem; color: var(--gray-600); flex: 1; }
+    .card-price { font-size: 1rem; font-weight: 800; color: var(--green); }
+
+    /* ── buttons ──────────────────────────────────────────────────────────── */
+    .btn-primary {
+      display: inline-block; background: var(--green); color: #fff;
+      border: none; border-radius: 8px;
+      padding: .65rem 1.2rem; font-size: .85rem; font-weight: 700;
+      cursor: pointer; font-family: inherit; text-decoration: none; text-align: center;
+      box-shadow: 0 2px 8px rgba(22,163,74,.3);
+      transition: background .2s, transform .15s, box-shadow .2s;
+    }
+    .btn-primary:hover { background: var(--green-d); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(22,163,74,.4); }
+    .btn-primary:active { transform: scale(.97); }
+    .btn-full { width: 100%; display: block; }
+
+    .btn-cta {
+      display: block; text-align: center; text-decoration: none;
+      background: linear-gradient(135deg, #16a34a, #15803d);
+      color: #fff; border-radius: 12px;
+      padding: 1.1rem 2rem; font-size: 1.1rem; font-weight: 800;
+      box-shadow: 0 4px 20px rgba(22,163,74,.4);
+      transition: transform .2s, box-shadow .2s;
+      margin-bottom: .75rem; letter-spacing: .3px;
+    }
+    .btn-cta:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(22,163,74,.5); }
+    .btn-cta:active { transform: scale(.97); }
+    .btn-pulse { animation: pulse 2.5s infinite; }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 4px 20px rgba(22,163,74,.4); }
+      50% { box-shadow: 0 4px 30px rgba(22,163,74,.7), 0 0 0 6px rgba(22,163,74,.12); }
+    }
+
+    .btn-secondary-cta {
+      display: block; text-align: center; text-decoration: none;
+      background: var(--orange); color: #fff; border-radius: 12px;
+      padding: .85rem 2rem; font-size: 1rem; font-weight: 700;
+      transition: background .2s, transform .2s; margin-bottom: 1rem;
+    }
+    .btn-secondary-cta:hover { background: #ea6c0a; transform: translateY(-1px); }
+    .btn-secondary-cta:active { transform: scale(.97); }
+
+    .btn-back {
+      background: none; border: 1.5px solid var(--gray-200);
+      color: var(--gray-600); border-radius: 8px;
+      padding: .5rem 1rem; cursor: pointer; font-family: inherit;
+      font-size: .85rem; margin-bottom: 1.5rem;
+      transition: border-color .2s, color .2s;
+    }
+    .btn-back:hover { border-color: var(--green); color: var(--green); }
+
+    /* ── product page ─────────────────────────────────────────────────────── */
+    #product-view { display: none; }
+    .product-page { max-width: 1100px; margin: 0 auto; padding: 2rem 1.25rem; }
+    .prod-layout { display: grid; gap: 2rem; }
+    @media (min-width: 768px) {
+      .prod-layout { grid-template-columns: 1fr 1fr; align-items: start; }
+    }
+    .prod-img-col img {
+      width: 100%; border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+    }
+    .trust-badges {
+      display: flex; gap: .75rem; flex-wrap: wrap; margin-top: 1rem;
+    }
+    .trust-badges span {
+      font-size: .75rem; font-weight: 600; color: var(--gray-600);
+      background: var(--gray-100); border-radius: 999px;
+      padding: .3rem .8rem; border: 1px solid var(--gray-200);
+    }
+    .prod-tag {
+      display: inline-block; background: var(--green-l); color: var(--green-d);
+      font-size: .72rem; font-weight: 700; padding: .25rem .7rem;
+      border-radius: 999px; text-transform: uppercase; letter-spacing: .8px;
+      margin-bottom: .75rem;
+    }
+    .prod-info-col h1 { font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; line-height: 1.2; margin-bottom: .75rem; }
+    .prod-desc { color: var(--gray-600); font-size: .95rem; margin-bottom: 1.25rem; }
+    .prod-benefits { list-style: none; margin-bottom: 1.5rem; display: flex; flex-direction: column; gap: .5rem; }
+    .prod-benefits li { font-size: .9rem; color: var(--gray-800); }
+    .prod-price { font-size: 1.8rem; font-weight: 800; color: var(--green); margin-bottom: 1.25rem; }
+    .prod-disclaimer { font-size: .75rem; color: var(--gray-600); text-align: center; }
+
+    /* ── trust section ────────────────────────────────────────────────────── */
+    .trust-section {
+      background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+      border-top: 1px solid #bbf7d0;
+      border-bottom: 1px solid #bbf7d0;
+    }
+    .trust-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; }
+    @media (min-width: 640px) { .trust-grid { grid-template-columns: repeat(4, 1fr); } }
+    .trust-item { text-align: center; }
+    .trust-icon { font-size: 2rem; margin-bottom: .4rem; }
+    .trust-item strong { display: block; font-size: .9rem; font-weight: 700; color: var(--gray-800); }
+    .trust-item span { font-size: .78rem; color: var(--gray-600); }
+
+    /* ── footer ───────────────────────────────────────────────────────────── */
+    footer {
+      background: var(--gray-800); color: rgba(255,255,255,.7);
+      text-align: center; padding: 2rem 1.25rem;
+      font-size: .8rem;
+    }
+    footer a { color: #4ADE80; text-decoration: none; }
+    footer .footer-logo { font-size: 1.2rem; font-weight: 800; color: #fff; margin-bottom: .4rem; }
+
+    /* ── modals (shared) ──────────────────────────────────────────────────── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.55); backdrop-filter: blur(4px);
+      z-index: 1000; align-items: center; justify-content: center;
+      padding: 1rem;
+    }
+    .modal-box {
+      background: #fff; border-radius: var(--radius-lg);
+      padding: 2rem; width: 100%; max-width: 480px;
+      box-shadow: var(--shadow-lg); position: relative;
+      max-height: 90vh; overflow-y: auto;
+    }
+    .modal-box.wide { max-width: 720px; }
+    .modal-title { font-size: 1.2rem; font-weight: 800; margin-bottom: 1.25rem; }
+    .modal-close {
+      position: absolute; top: 1rem; right: 1rem;
+      background: none; border: none; font-size: 1.3rem;
+      cursor: pointer; color: var(--gray-600); line-height: 1;
+    }
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; font-size: .82rem; font-weight: 600; margin-bottom: .35rem; }
+    .form-group input, .form-group textarea, .form-group select {
+      width: 100%; padding: .65rem .85rem;
+      border: 1.5px solid var(--gray-200); border-radius: 8px;
+      font-family: inherit; font-size: .9rem; color: var(--gray-800);
+      transition: border-color .2s;
+      background: var(--gray-50);
+    }
+    .form-group input:focus, .form-group textarea:focus {
+      outline: none; border-color: var(--green);
+      background: #fff;
+    }
+    .form-group textarea { resize: vertical; min-height: 80px; }
+    .form-hint { font-size: .75rem; color: var(--gray-600); margin-top: .3rem; }
+    .btn-form-submit {
+      width: 100%; background: var(--green); color: #fff;
+      border: none; border-radius: 8px; padding: .85rem;
+      font-size: 1rem; font-weight: 700; cursor: pointer; font-family: inherit;
+      transition: background .2s;
+    }
+    .btn-form-submit:hover { background: var(--green-d); }
+    #login-error { color: #DC2626; font-size: .82rem; margin-top: .5rem; }
+
+    /* ── product image preview ────────────────────────────────────────────── */
+    #prod-image-preview {
+      display: none; width: 100%; max-height: 160px;
+      object-fit: cover; border-radius: 8px;
+      margin-top: .5rem; border: 1px solid var(--gray-200);
+    }
+
+    /* ── admin panel ──────────────────────────────────────────────────────── */
+    .admin-product-row {
+      display: flex; align-items: center; gap: 1rem;
+      padding: .85rem; border-radius: 10px;
+      border: 1px solid var(--gray-200); margin-bottom: .75rem;
+      background: var(--gray-50);
+    }
+    .admin-product-row img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; }
+    .admin-prod-info { flex: 1; }
+    .admin-prod-info strong { display: block; font-size: .9rem; }
+    .admin-prod-info small { color: var(--gray-600); font-size: .75rem; word-break: break-all; }
+    .admin-prod-actions { display: flex; flex-direction: column; gap: .4rem; }
+    .btn-admin-action {
+      background: var(--gray-100); border: 1px solid var(--gray-200);
+      border-radius: 6px; padding: .3rem .7rem;
+      font-family: inherit; font-size: .78rem; cursor: pointer;
+      transition: background .2s;
+    }
+    .btn-admin-action:hover { background: var(--gray-200); }
+    .btn-admin-action.btn-danger { background: #fee2e2; border-color: #fca5a5; color: #dc2626; }
+    .btn-admin-action.btn-danger:hover { background: #fecaca; }
+
+    /* ── FAB login button ─────────────────────────────────────────────────── */
+    #admin-fab {
+      display: none;
+      position: fixed; bottom: 1.5rem; right: 1.5rem;
+      background: var(--gray-800); color: #fff;
+      border-radius: 999px; padding: .65rem 1.2rem;
+      font-size: .8rem; font-weight: 700; cursor: pointer;
+      box-shadow: var(--shadow-lg); z-index: 200;
+      align-items: center; gap: .4rem;
+      border: none; font-family: inherit;
+    }
+
+    /* ── scroll reveal ────────────────────────────────────────────────────── */
+    .reveal { opacity: 0; transform: translateY(20px); transition: opacity .5s, transform .5s; }
+    .reveal.visible { opacity: 1; transform: none; }
+  </style>
+</head>
+<body>
+
+<!-- NAVBAR -->
+<nav class="navbar">
+  <a href="/" class="nav-logo" onclick="goHome(); return false;">
+    <div class="nav-logo-icon">🌿</div>
+    <div>
+      <span class="nav-logo-text">Vida<span>Leve</span></span>
+      <span class="nav-tagline">Saúde & Emagrecimento</span>
+    </div>
+  </a>
+  <button onclick="openLogin()" style="background:none;border:1.5px solid var(--gray-200);border-radius:8px;padding:.4rem .9rem;cursor:pointer;font-family:inherit;font-size:.8rem;color:var(--gray-600);">
+    🔑 Admin
+  </button>
+</nav>
+
+<!-- ADMIN BAR -->
+<div id="admin-bar">
+  <span>⚙️ Painel Administrativo</span>
+  <button class="btn-admin-bar" onclick="openAddProduct()">➕ Adicionar Produto</button>
+  <button class="btn-admin-bar" onclick="openAdminPanel()">📦 Gerenciar Produtos</button>
+  <button class="btn-admin-bar" onclick="openSiteConfig()">🖼️ Banner & Textos</button>
+  <button class="btn-admin-bar danger" onclick="doLogout()">Sair</button>
+</div>
+
+<!-- HOME VIEW -->
+<div id="home-view">
+  <!-- HERO -->
+  <section class="hero">
+    <img id="hero-img" src="https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=1400&q=80" alt="Saúde e bem-estar" />
+    <div class="hero-overlay">
+      <div class="hero-eyebrow">🌿 Produtos Selecionados com Cuidado</div>
+      <h1 id="hero-title">Transforme sua vida começando hoje.</h1>
+      <p id="hero-sub">Escolha um dos produtos abaixo e dê o primeiro passo para alcançar seus objetivos.</p>
+      <div class="hero-cta-group">
+        <button class="hero-btn" onclick="document.getElementById('catalog').scrollIntoView({behavior:'smooth'})">
+          Ver Produtos →
+        </button>
+        <button class="hero-btn outline" onclick="document.getElementById('trust').scrollIntoView({behavior:'smooth'})">
+          Por que confiar?
+        </button>
+      </div>
+      <div class="hero-stats">
+        <div class="hero-stat"><strong>10.000+</strong><span>Clientes satisfeitos</span></div>
+        <div class="hero-stat"><strong>30 dias</strong><span>Garantia total</span></div>
+        <div class="hero-stat"><strong>100%</strong><span>Digital & Imediato</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TRUST STRIP -->
+  <section class="trust-section" id="trust">
+    <div class="section">
+      <div class="trust-grid">
+        <div class="trust-item reveal">
+          <div class="trust-icon">🔒</div>
+          <strong>Compra Segura</strong>
+          <span>Ambiente protegido pela Hotmart</span>
+        </div>
+        <div class="trust-item reveal">
+          <div class="trust-icon">✅</div>
+          <strong>Garantia 30 dias</strong>
+          <span>Reembolso total sem perguntas</span>
+        </div>
+        <div class="trust-item reveal">
+          <div class="trust-icon">⚡</div>
+          <strong>Acesso Imediato</strong>
+          <span>Receba agora mesmo após a compra</span>
+        </div>
+        <div class="trust-item reveal">
+          <div class="trust-icon">⭐</div>
+          <strong>Alta Avaliação</strong>
+          <span>Produtos top-rated na Hotmart</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CATALOG -->
+  <section class="section" id="catalog">
+    <div class="section-header reveal">
+      <p class="section-eyebrow">📦 Catálogo de Produtos</p>
+      <h2 class="section-title">Escolha o seu produto ideal</h2>
+      <p class="section-sub">Todos os produtos são digitais, com acesso imediato e garantia de 30 dias.</p>
+    </div>
+    <div id="products-grid">
+      <!-- produtos carregados via JS -->
+      <p class="empty-state">Carregando produtos…</p>
+    </div>
+  </section>
+</div>
+
+<!-- PRODUCT VIEW -->
+<div id="product-view"></div>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-logo">🌿 VidaLeve</div>
+  <p>Este site faz parte do programa de afiliados da <a href="https://hotmart.com" target="_blank">Hotmart</a>.</p>
+  <p style="margin-top:.5rem">Os produtos são vendidos e entregues diretamente pelo produtor.</p>
+</footer>
+
+<!-- FAB (só admin) -->
+<button id="admin-fab" onclick="openAdminPanel()">⚙️ Admin</button>
+
+<!-- MODAL LOGIN -->
+<div class="modal-overlay" id="login-modal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeLogin()">✕</button>
+    <h2 class="modal-title">🔑 Acesso Administrativo</h2>
+    <form id="login-form">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="login-email" required placeholder="admin@email.com" />
+      </div>
+      <div class="form-group">
+        <label>Senha</label>
+        <input type="password" id="login-pass" required placeholder="••••••••" />
+      </div>
+      <div id="login-error"></div>
+      <button type="submit" class="btn-form-submit" style="margin-top:.75rem">Entrar</button>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL ADMIN PANEL -->
+<div class="modal-overlay" id="admin-panel">
+  <div class="modal-box wide">
+    <button class="modal-close" onclick="closeAdminPanel()">✕</button>
+    <h2 class="modal-title">📦 Gerenciar Produtos</h2>
+    <button class="btn-form-submit" style="margin-bottom:1.25rem" onclick="openAddProduct()">➕ Adicionar Novo Produto</button>
+    <div id="admin-product-list"></div>
+  </div>
+</div>
+
+<!-- MODAL ADD/EDIT PRODUCT -->
+<div class="modal-overlay" id="prod-form-modal">
+  <div class="modal-box wide">
+    <button class="modal-close" onclick="closeProdForm()">✕</button>
+    <h2 class="modal-title" id="prod-form-title">Adicionar Produto</h2>
+    <form id="prod-form">
+      <input type="hidden" id="prod-form-id" />
+      <div class="form-group">
+        <label>📷 Imagem do Produto</label>
+        <input type="file" id="prod-image-input" accept="image/*" />
+        <img id="prod-image-preview" alt="Prévia da imagem" />
+      </div>
+      <div class="form-group">
+        <label>Nome do Produto *</label>
+        <input type="text" id="prod-name" required placeholder="Ex: Programa Detox 21 Dias" />
+      </div>
+      <div class="form-group">
+        <label>Descrição Curta (card)</label>
+        <input type="text" id="prod-short" placeholder="Ex: Perca até 5kg em 3 semanas com método natural" />
+      </div>
+      <div class="form-group">
+        <label>Descrição Completa (página do produto)</label>
+        <textarea id="prod-desc" placeholder="Descreva o produto em detalhes..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Benefícios (um por linha)</label>
+        <textarea id="prod-benefits" placeholder="Resultado em 21 dias&#10;Método 100% natural&#10;Suporte por 30 dias"></textarea>
+        <span class="form-hint">Cada linha vira um tópico na página do produto.</span>
+      </div>
+      <div class="form-group">
+        <label>Preço (ex: R$ 97,00 ou <s>R$ 197</s> R$ 97)</label>
+        <input type="text" id="prod-price" placeholder="R$ 97,00" />
+      </div>
+      <div class="form-group">
+        <label>🔗 Hotlink da Hotmart *</label>
+        <input type="url" id="prod-hotlink" placeholder="https://go.hotmart.com/XXXXXXXXX" />
+      </div>
+      <div class="form-group">
+        <label>Badge (ex: OFERTA, NOVO, MAIS VENDIDO)</label>
+        <input type="text" id="prod-badge" placeholder="MAIS VENDIDO" />
+      </div>
+      <div class="form-group">
+        <label>Tag / Categoria (ex: Detox, Emagrecimento)</label>
+        <input type="text" id="prod-tag" placeholder="Emagrecimento" />
+      </div>
+      <button type="submit" class="btn-form-submit" id="prod-submit-btn">Salvar Produto</button>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL SITE CONFIG -->
+<div class="modal-overlay" id="site-config-modal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeSiteConfig()">✕</button>
+    <h2 class="modal-title">🖼️ Configurar Banner & Textos</h2>
+    <form id="site-config-form">
+      <div class="form-group">
+        <label>📷 Imagem do Banner Principal</label>
+        <input type="file" id="banner-input" accept="image/*" />
+        <span class="form-hint">Recomendado: 1400×600px. Será sobreposta com gradiente.</span>
+      </div>
+      <div class="form-group">
+        <label>Título Principal</label>
+        <input type="text" id="cfg-title" placeholder="Transforme sua vida começando hoje." />
+      </div>
+      <div class="form-group">
+        <label>Subtítulo</label>
+        <input type="text" id="cfg-subtitle" placeholder="Escolha um dos produtos abaixo..." />
+      </div>
+      <button type="submit" class="btn-form-submit">Salvar Configurações</button>
+    </form>
+  </div>
+</div>
+
+<script>
+  // scroll reveal
+  const observer = new IntersectionObserver(entries =>
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); }),
+    { threshold: .15 }
+  );
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>
